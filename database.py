@@ -1,6 +1,9 @@
 import mysql.connector
 import logging
 from config import DB_CONFIG
+import os
+import pymysql
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -11,42 +14,42 @@ class Database:
             self.connection = mysql.connector.connect(**DB_CONFIG)
             self.cursor = self.connection.cursor(dictionary=True)
             logger.info("Успешное подключение к базе данных")
-            self._create_tables()
+            self._add_code_column()
         except mysql.connector.Error as err:
             logger.error(f"Ошибка подключения к базе данных: {err}")
             raise
-
-    def _create_tables(self):
-        """Создает необходимые таблицы, если они не существуют"""
+    
+    def _add_code_column(self):
+        """Добавляет столбец code в таблицу products, если он не существует"""
         try:
-            # Создание таблицы users
-            self.cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    telegram_id BIGINT UNIQUE NOT NULL,
-                    username VARCHAR(255),
-                    nickname VARCHAR(255),
-                    language VARCHAR(2) DEFAULT 'ru',
-                    is_subscribed BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            self.connection.commit()
-            logger.info("Таблицы успешно созданы или уже существуют")
+            # Проверяем, существует ли столбец code в таблице products
+            self.cursor.execute("DESCRIBE products")
+            columns = self.cursor.fetchall()
+            
+            # Проверяем, есть ли столбец code среди колонок
+            column_exists = any(column['Field'] == 'code' for column in columns)
+            
+            if not column_exists:
+                logger.info("Добавление столбца 'code' в таблицу products")
+                self.cursor.execute("ALTER TABLE products ADD COLUMN code VARCHAR(255)")
+                self.connection.commit()
+                logger.info("Столбец 'code' успешно добавлен")
+            else:
+                logger.info("Столбец 'code' уже существует в таблице products")
+            
         except mysql.connector.Error as err:
-            logger.error(f"Ошибка при создании таблиц: {err}")
-            raise
-
+            logger.error(f"Ошибка при добавлении столбца code: {err}")
+    
     def __enter__(self):
         return self
-
+    
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:
             self.connection.close()
             logger.info("Соединение с базой данных закрыто")
         except Exception as e:
             logger.error(f"Ошибка при закрытии соединения: {e}")
-
+    
     def get_user(self, telegram_id):
         try:
             self.cursor.execute("SELECT * FROM users WHERE telegram_id = %s", (telegram_id,))
