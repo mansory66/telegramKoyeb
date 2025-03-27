@@ -140,17 +140,16 @@ PROFILE_MESSAGE = """
 🔹 Язык: {language}
 """
 
-# Удаляем обновление товаров отсюда, переносим в main
 # Инициируем обновление товаров из МойСклад при запуске бота
-# try:
-#     logger.info("Запуск обновления товаров из МойСклад при старте бота")
-#     update_result = update_products_from_moysklad()
-#     if update_result:
-#         logger.info("Обновление товаров из МойСклад успешно выполнено")
-#     else:
-#         logger.warning("Не удалось обновить товары из МойСклад")
-# except Exception as e:
-#     logger.error(f"Ошибка при обновлении товаров из МойСклад: {str(e)}")
+try:
+    logger.info("Запуск обновления товаров из МойСклад при старте бота")
+    update_result = update_products_from_moysklad()
+    if update_result:
+        logger.info("Обновление товаров из МойСклад успешно выполнено")
+    else:
+        logger.warning("Не удалось обновить товары из МойСклад")
+except Exception as e:
+    logger.error(f"Ошибка при обновлении товаров из МойСклад: {str(e)}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -1136,18 +1135,6 @@ async def update_order_status(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def main():
     try:
         logger.info("Запуск бота...")
-        
-        # Выполняем обновление товаров из МойСклад
-        try:
-            logger.info("Запуск обновления товаров из МойСклад при старте бота")
-            update_result = update_products_from_moysklad()
-            if update_result:
-                logger.info("Обновление товаров из МойСклад успешно выполнено")
-            else:
-                logger.warning("Не удалось обновить товары из МойСклад")
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении товаров из МойСклад: {str(e)}")
-        
         application = Application.builder().token(BOT_TOKEN).build()
 
         # Добавляем обработчики
@@ -1175,6 +1162,9 @@ async def main():
         # Проверяем переменную окружения WEBHOOK_URL
         webhook_url = os.getenv("WEBHOOK_URL")
         
+        # Инициализация приложения
+        await application.initialize()
+        
         # Если задан WEBHOOK_URL, используем webhook, иначе polling
         if webhook_url and webhook_url.strip():
             logger.info(f"Запуск через webhook: {webhook_url}")
@@ -1184,19 +1174,34 @@ async def main():
             await application.bot.delete_webhook(drop_pending_updates=True)
             
             # Устанавливаем webhook
-            application.run_webhook(
+            await application.start()
+            await application.updater.start_webhook(
                 listen="0.0.0.0",
                 port=port,
                 webhook_url=webhook_url,
-                drop_pending_updates=True  # Игнорируем накопившиеся обновления
+                drop_pending_updates=True
             )
+            
+            # Ждем, пока не будет остановлено
+            await application.updater.start_webhook_task
         else:
             logger.info("Webhook URL не установлен. Запуск через long polling.")
             # Удаляем webhook перед запуском long polling (с await)
             await application.bot.delete_webhook(drop_pending_updates=True)
-            application.run_polling(drop_pending_updates=True)
+            
+            # Запускаем через polling
+            await application.start()
+            await application.updater.start_polling(drop_pending_updates=True)
+            
+            # Ждем, пока не будет остановлено
+            await application.updater.stop()
+            
+        # Корректно останавливаем приложение при завершении
+        await application.stop()
     except Exception as e:
         logger.error(f"Критическая ошибка при запуске бота: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 if __name__ == '__main__':
     # Используем asyncio для запуска асинхронной main()

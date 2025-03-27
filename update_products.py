@@ -40,48 +40,74 @@ def main():
         
         # Получаем товары из МойСклад
         products = get_all_products()
+        if not products:
+            logger.warning("Не удалось получить товары из МойСклад или список товаров пуст")
+            return False
+            
         logger.info(f"Получено {len(products)} товаров из МойСклад")
         
         # Подключаемся к базе данных
         with Database() as db:
             # Получаем существующие товары
-            existing_products = db.get_all_products()
-            existing_product_codes = {p['code']: p for p in existing_products} if existing_products else {}
-            logger.info(f"В базе данных найдено {len(existing_product_codes)} товаров")
+            try:
+                existing_products = db.get_all_products()
+                existing_product_codes = {p['code']: p for p in existing_products} if existing_products else {}
+                logger.info(f"В базе данных найдено {len(existing_product_codes)} товаров")
+            except Exception as e:
+                logger.error(f"Ошибка при получении существующих товаров: {str(e)}")
+                return False
             
             added = 0
             updated = 0
+            errors = 0
             
             # Обновляем или добавляем товары
             for product in products:
-                if product['code'] in existing_product_codes:
-                    # Обновляем существующий товар
-                    db.update_product(
-                        product_id=existing_product_codes[product['code']]['id'],
-                        name=product['name'],
-                        description=product.get('description', ''),
-                        price=product['price'],
-                        quantity=product['quantity'],
-                        category_id=product.get('category_id'),
-                        image_url=product.get('image_url', '')
-                    )
-                    updated += 1
-                else:
-                    # Добавляем новый товар
-                    db.create_product(
-                        name=product['name'],
-                        code=product['code'],
-                        description=product.get('description', ''),
-                        price=product['price'],
-                        quantity=product['quantity'],
-                        category_id=product.get('category_id'),
-                        image_url=product.get('image_url', '')
-                    )
-                    added += 1
+                try:
+                    if not product.get('code'):
+                        logger.warning(f"Пропускаем товар без кода: {product.get('name', 'Неизвестный товар')}")
+                        continue
+                        
+                    if product['code'] in existing_product_codes:
+                        # Обновляем существующий товар
+                        result = db.update_product(
+                            product_id=existing_product_codes[product['code']]['id'],
+                            name=product['name'],
+                            description=product.get('description', ''),
+                            price=product['price'],
+                            quantity=product['quantity'],
+                            category_id=product.get('category_id'),
+                            image_url=product.get('image_url', '')
+                        )
+                        if result:
+                            updated += 1
+                        else:
+                            errors += 1
+                    else:
+                        # Добавляем новый товар
+                        result = db.create_product(
+                            name=product['name'],
+                            code=product['code'],
+                            description=product.get('description', ''),
+                            price=product['price'],
+                            quantity=product['quantity'],
+                            category_id=product.get('category_id'),
+                            image_url=product.get('image_url', '')
+                        )
+                        if result:
+                            added += 1
+                        else:
+                            errors += 1
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке товара {product.get('name', 'Неизвестный товар')}: {str(e)}")
+                    errors += 1
             
-            logger.info(f"Обновление завершено: добавлено {added} новых товаров, обновлено {updated} товаров")
+            logger.info(f"Обновление завершено: добавлено {added} новых товаров, обновлено {updated} товаров, ошибок: {errors}")
+            return errors == 0  # Возвращаем True, если не было ошибок
     except Exception as e:
         logger.error(f"Ошибка при обновлении товаров: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
     
     return True

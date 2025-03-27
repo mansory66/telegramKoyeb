@@ -49,10 +49,16 @@ def get_all_products():
             except Exception as e:
                 logger.error(f"Ошибка при получении остатков товара: {str(e)}")
             
-            # Формирование данных о товаре
+            # Формирование данных о товаре, генерируем код если его нет
+            product_code = item.get('code', '')
+            if not product_code:
+                # Если код отсутствует, генерируем его из id или другого уникального поля
+                product_code = f"ID_{item.get('id', '')[-6:]}"
+                logger.warning(f"Для товара '{item.get('name', '')}' код отсутствует, сгенерирован: {product_code}")
+            
             product = {
                 'name': item.get('name', ''),
-                'code': item.get('code', ''),
+                'code': product_code,
                 'description': item.get('description', ''),
                 'price': price,
                 'quantity': quantity,
