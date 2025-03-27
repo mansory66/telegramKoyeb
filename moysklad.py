@@ -19,42 +19,45 @@ def get_all_products():
         # Обновленный URL API МойСклад
         url = "https://api.moysklad.ru/api/remap/1.2/entity/product"
         headers = get_auth_header()
-        logger.info(f"Выполняем запрос товаров к API: {url}")
+        
+        logger.info("Запрос списка товаров из МойСклад")
         response = requests.get(url, headers=headers)
         
         if response.status_code != 200:
-            logger.error(f"Ошибка при получении товаров из МойСклад: {response.text}")
+            logger.error(f"Ошибка API МойСклад: {response.status_code}")
+            if logger.level <= logging.DEBUG:
+                logger.debug(f"Текст ошибки: {response.text}")
             return []
         
         data = response.json()
-        logger.info(f"Успешно получено {len(data.get('rows', []))} товаров из API")
+        products_count = len(data.get('rows', []))
+        logger.info(f"Получено {products_count} товаров из МойСклад")
         products = []
         
         for index, item in enumerate(data.get('rows', [])):
             try:
                 product_id = item.get('id')
+                product_name = item.get('name', 'Неизвестный товар')
+                
                 if not product_id:
-                    logger.warning(f"Товар без ID: {item.get('name', 'Неизвестный товар')}, пропускаем")
+                    logger.warning(f"Товар без ID: {product_name}, пропускаем")
                     continue
                 
                 # Получение цены товара
                 price = 0
-                try:
-                    if 'salePrices' in item and len(item['salePrices']) > 0:
-                        # Цена в МойСклад хранится в копейках, поэтому делим на 100
-                        price = item['salePrices'][0]['value'] / 100
-                except Exception as e:
-                    logger.error(f"Ошибка при получении цены товара {item.get('name', '')}: {str(e)}")
+                if 'salePrices' in item and len(item['salePrices']) > 0:
+                    # Цена в МойСклад хранится в копейках, поэтому делим на 100
+                    price = item['salePrices'][0]['value'] / 100
                 
-                # Получение количества товара с ПРЯМЫМ запросом к API остатков
-                quantity = get_product_stock(product_id, headers, item.get('name', ''))
+                # Получение количества товара с учетом всех методов API
+                quantity = get_product_stock(product_id, headers, product_name)
                 
                 # Формирование данных о товаре, генерируем код если его нет
                 product_code = item.get('code', '')
                 if not product_code:
                     # Если код отсутствует, генерируем его из id или другого уникального поля
                     product_code = f"ID_{item.get('id', '')[-6:]}"
-                    logger.warning(f"Для товара '{item.get('name', '')}' код отсутствует, сгенерирован: {product_code}")
+                    logger.debug(f"Сгенерирован код для товара '{product_name}': {product_code}")
                 
                 # Добавляем дополнительную информацию
                 description = item.get('description', '')
@@ -68,21 +71,28 @@ def get_all_products():
                         description = "\n".join(attributes)
                 
                 product = {
-                    'name': item.get('name', ''),
+                    'name': product_name,
                     'code': product_code,
                     'description': description,
                     'price': price,
                     'quantity': quantity,
-                    'category_id': None,  # Нужно сопоставить с категориями в вашей базе данных
-                    'image_url': ''  # Добавить получение изображений при необходимости
+                    'category_id': None,
+                    'image_url': ''
                 }
                 
-                logger.info(f"Обработан товар #{index+1}: {product['name']}, цена: {product['price']}, остаток: {product['quantity']}")
+                # Только в режиме DEBUG логируем каждый товар
+                if logger.level <= logging.DEBUG:
+                    logger.debug(f"Обработан товар #{index+1}: {product_name}, цена: {price}, остаток: {quantity}")
+                
+                # В режиме INFO логируем прогресс каждые 50 товаров
+                if index % 50 == 0 and index > 0 and logger.level <= logging.INFO:
+                    logger.info(f"Обработано {index} товаров из {products_count}...")
+                
                 products.append(product)
             except Exception as e:
-                logger.error(f"Ошибка при обработке товара {item.get('name', '')}: {str(e)}")
+                logger.error(f"Ошибка обработки товара '{item.get('name', '')}': {str(e)}")
         
-        logger.info(f"Всего обработано {len(products)} товаров из {len(data.get('rows', []))}")
+        logger.info(f"Успешно обработано {len(products)} товаров из {products_count}")
         return products
     except Exception as e:
         logger.error(f"Ошибка при работе с API МойСклад: {str(e)}")
@@ -90,68 +100,69 @@ def get_all_products():
 
 def get_product_stock(product_id, headers, product_name=''):
     """Получение остатков конкретного товара"""
-    total_stock = 0
-    
     try:
-        # Метод 1: Пробуем отчет по остаткам для конкретного товара
+        # МЕТОД 1: /report/stock/all - прямой метод получения
+        # Этот метод возвращает остатки всех товаров, но мы фильтруем по ID
         stock_url = f"https://api.moysklad.ru/api/remap/1.2/report/stock/all?product.id={product_id}"
-        logger.info(f"Запрос остатков для товара '{product_name}' через report/stock/all")
         
         response = requests.get(stock_url, headers=headers)
         if response.status_code == 200:
-            stock_data = response.json()
+            data = response.json()
             
-            if isinstance(stock_data, list):
-                # Проходим по списку остатков
-                for item in stock_data:
-                    # Прямое значение stock
+            # В API МойСклад ответ приходит в виде списка, даже если это один товар
+            if isinstance(data, list):
+                # Просматриваем все элементы и ищем наш товар
+                for item in data:
+                    # Проверяем наличие поля stock
                     if 'stock' in item:
-                        stock_value = float(item.get('stock', 0)) 
-                        total_stock += stock_value
-                        logger.info(f"Найден остаток stock для '{product_name}': {stock_value}")
-                    
-                    # Проверяем склады
-                    if 'stockByStore' in item:
-                        store_stocks = item.get('stockByStore', [])
-                        for store in store_stocks:
-                            if 'stock' in store:
-                                store_value = float(store.get('stock', 0))
-                                store_name = store.get('name', 'Неизвестный склад')
-                                logger.info(f"Найден остаток на складе '{store_name}' для '{product_name}': {store_value}")
-                                # Не добавляем, так как это уже учтено в общем stock
-            else:
-                logger.warning(f"Неожиданный формат данных об остатках для '{product_name}': {type(stock_data).__name__}")
-        else:
-            logger.error(f"Ошибка при запросе остатков для '{product_name}': {response.status_code} - {response.text}")
-        
-        # Если через первый метод не получили остатки, пробуем другой
-        if total_stock == 0:
-            # Метод 2: Пробуем отчет по остаткам для всех складов
-            stock_url = f"https://api.moysklad.ru/api/remap/1.2/report/stock/bystore?product.id={product_id}"
-            logger.info(f"Запрос остатков для товара '{product_name}' через report/stock/bystore")
+                        # В поле stock хранится числовое значение остатка
+                        stock_value = float(item.get('stock', 0))
+                        if logger.level <= logging.DEBUG:
+                            logger.debug(f"Товар '{product_name}': остаток = {stock_value}")
+                        return stock_value
             
-            response = requests.get(stock_url, headers=headers)
-            if response.status_code == 200:
-                stock_data = response.json()
+            # Если не нашли остаток через первый метод, возвращаем 0
+            # или можно попробовать другой метод (ниже)
+            return 0
+        
+        # МЕТОД 2: /report/stock/bystore
+        # Если первый метод не сработал или не дал результатов, пробуем 
+        # получить остатки по складам и суммировать их
+        stock_url = f"https://api.moysklad.ru/api/remap/1.2/report/stock/bystore?product.id={product_id}"
+        
+        response = requests.get(stock_url, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            
+            # Проверяем, что в ответе есть поле rows
+            if isinstance(data, dict) and 'rows' in data:
+                rows = data.get('rows', [])
                 
-                if isinstance(stock_data, dict) and 'rows' in stock_data:
-                    rows = stock_data.get('rows', [])
-                    for row in rows:
-                        if 'stock' in row:
-                            stock_value = float(row.get('stock', 0))
-                            total_stock += stock_value
-                            store_name = row.get('name', 'Неизвестный склад')
-                            logger.info(f"Найден остаток на складе '{store_name}' для '{product_name}': {stock_value}")
-                else:
-                    logger.warning(f"Неожиданный формат данных отчета по складам для '{product_name}': {stock_data}")
-            else:
-                logger.error(f"Ошибка при запросе остатков по складам для '{product_name}': {response.status_code} - {response.text}")
-    
+                # Инициализируем общий остаток
+                total_stock = 0
+                
+                # Суммируем остатки по всем складам
+                for row in rows:
+                    # В каждой строке проверяем наличие поля stockByStore
+                    if 'stockByStore' in row:
+                        # stockByStore - это список остатков по складам
+                        stores = row.get('stockByStore', [])
+                        for store in stores:
+                            # Для каждого склада проверяем наличие положительного остатка
+                            if 'stock' in store and store.get('stock', 0) > 0:
+                                # Добавляем остаток к общему количеству
+                                total_stock += float(store.get('stock', 0))
+                
+                if total_stock > 0 and logger.level <= logging.DEBUG:
+                    logger.debug(f"Товар '{product_name}': общий остаток по складам = {total_stock}")
+                
+                return total_stock
+        
+        # Если не получилось найти остатки ни одним из методов, возвращаем 0
+        return 0
     except Exception as e:
-        logger.error(f"Ошибка при получении остатков для товара '{product_name}': {str(e)}")
-    
-    logger.info(f"Итоговый остаток товара '{product_name}': {total_stock}")
-    return total_stock
+        logger.error(f"Ошибка при получении остатков для '{product_name}': {str(e)}")
+        return 0
 
 def get_stock_info(product_id: str) -> int:
     """Получить информацию о наличии товара"""

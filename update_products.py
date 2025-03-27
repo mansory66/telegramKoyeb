@@ -5,6 +5,7 @@ from logging.handlers import RotatingFileHandler
 
 from moysklad import get_all_products
 from database import Database
+from config import LOG_LEVEL_CODE
 
 # Настройка логирования
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

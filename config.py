@@ -1,8 +1,21 @@
 import os
+import logging
 from dotenv import load_dotenv
 
 # Загрузка переменных окружения
 load_dotenv()
+
+# Настройка уровня логирования
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_LEVEL_MAP = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL
+}
+# Преобразуем строковое значение в числовой код уровня логирования
+LOG_LEVEL_CODE = LOG_LEVEL_MAP.get(LOG_LEVEL, logging.INFO)
 
 # Настройки Telegram бота
 BOT_TOKEN = os.getenv("BOT_TOKEN", "7624944977:AAEsNgBqplefNXU8l5tTPSzoXn0CpzFn9I8")
