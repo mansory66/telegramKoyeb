@@ -15,7 +15,8 @@ def get_auth_header():
 def get_all_products():
     """Получение всех товаров из МойСклад"""
     try:
-        url = "https://online.moysklad.ru/api/remap/1.2/entity/product"
+        # Обновленный URL API МойСклад
+        url = "https://api.moysklad.ru/api/remap/1.2/entity/product"
         headers = get_auth_header()
         response = requests.get(url, headers=headers)
         
@@ -39,7 +40,7 @@ def get_all_products():
             # Получение количества товара
             quantity = 0
             try:
-                stock_url = f"https://online.moysklad.ru/api/remap/1.2/report/stock/all?product.id={item['id']}"
+                stock_url = f"https://api.moysklad.ru/api/remap/1.2/report/stock/all?product.id={item['id']}"
                 stock_response = requests.get(stock_url, headers=headers)
                 
                 if stock_response.status_code == 200:
@@ -77,14 +78,14 @@ def get_stock_info(product_id: str) -> int:
     """Получить информацию о наличии товара"""
     try:
         response = requests.get(
-            f"https://online.moysklad.ru/api/remap/1.2/entity/product/{product_id}/positions",
+            f"https://api.moysklad.ru/api/remap/1.2/entity/product/{product_id}/positions",
             auth=HTTPBasicAuth(MOYSKLAD_LOGIN, MOYSKLAD_PASSWORD)
         )
         response.raise_for_status()
         data = response.json()
         
-        return data.get('quantity', 0)
-        
+        total_stock = sum(item.get('quantity', 0) for item in data.get('rows', []))
+        return total_stock
     except Exception as e:
-        logger.error(f"Ошибка при получении остатков товара {product_id}: {str(e)}")
+        logger.error(f"Ошибка при получении информации о наличии: {str(e)}")
         return 0 
