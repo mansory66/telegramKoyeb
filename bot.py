@@ -385,21 +385,19 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with Database() as db:
         user_data = db.get_user(user.id)
         orders_count = db.get_user_orders_count(user.id)
-        
-        # Если у пользователя нет языка в базе, устанавливаем русский по умолчанию
-        if not user_data or 'language' not in user_data:
-            user_data = {'language': 'ru'}
-            if not user_data:  # Если пользователя нет в базе, создаем его
-                db.create_user(user.id, user.username or '', 'ru')
+        user_lang = user_data.get('language', 'ru') if user_data else 'ru'
     
-    message = PROFILE_MESSAGE.format(
-        username=user.username or "Не указан",
-        orders_count=orders_count,
-        language=LANGUAGES[user_data['language']]
+    message = (
+        f"👤 *Профиль*\n\n"
+        f"🆔 ID: `{user.id}`\n"
+        f"👤 Имя: {user.first_name}\n"
+        f"📝 Никнейм: @{user.username or 'Не указан'}\n"
+        f"🛍 Заказов: {orders_count}\n"
+        f"🌐 Язык: {LANGUAGES[user_lang]}"
     )
     
     keyboard = [
-        [InlineKeyboardButton("🌐 Изменить язык", callback_data="language")],
+        [InlineKeyboardButton("🌐 Сменить язык", callback_data="language")],
         [InlineKeyboardButton("📦 Мои заказы", callback_data="orders")],
         [InlineKeyboardButton("🔙 В главное меню", callback_data="main_menu")]
     ]
@@ -738,6 +736,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await check_subscription(update, context)
     elif query.data == "show_categories":
         await show_categories(update, context)
+    elif query.data == "feedback":
+        await feedback(update, context)
     elif query.data.startswith("category_list_"):
         await show_categories(update, context)
     elif query.data.startswith("category_"):
@@ -754,6 +754,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await paid_order(update, context)
     elif query.data == "profile":
         await profile(update, context)
+    elif query.data == "language":
+        await show_language_menu(update, context)
+    elif query.data == "orders":
+        await show_user_orders(update, context)
     elif query.data == "show_language_menu":
         await show_language_menu(update, context)
     elif query.data.startswith("lang_"):
@@ -942,43 +946,6 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN
         )
 
-async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает профиль пользователя"""
-    user = update.effective_user
-    user_lang = context.user_data.get('language', 'ru')
-    
-    with Database() as db:
-        user_data = db.get_user(user.id)
-        orders_count = db.get_user_orders_count(user.id)
-    
-    message = (
-        f"👤 *Профиль*\n\n"
-        f"🆔 ID: `{user.id}`\n"
-        f"👤 Имя: {user.first_name}\n"
-        f"📝 Никнейм: @{user.username or 'Не указан'}\n"
-        f"🛍 Заказов: {orders_count}\n"
-        f"🌐 Язык: {LANGUAGES[user_lang]}"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("✏️ Изменить никнейм", callback_data="change_nickname")],
-        [InlineKeyboardButton("🌐 Сменить язык", callback_data="show_language_menu")],
-        [InlineKeyboardButton("🔙 В главное меню", callback_data="main_menu")]
-    ]
-    
-    if update.callback_query:
-        await update.callback_query.edit_message_text(
-            message,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    else:
-        await update.message.reply_text(
-            message,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.MARKDOWN
-        )
-
 async def show_language_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает меню выбора языка"""
     user = update.effective_user
@@ -1017,7 +984,7 @@ async def change_language(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with Database() as db:
             if db.update_user_language(user_id, lang):
                 await query.answer(get_text('language_changed', lang))
-                await show_profile(update, context)
+                await profile(update, context)
             else:
                 await query.answer(get_text('error', lang), show_alert=True)
 
@@ -1119,6 +1086,51 @@ async def update_order_status(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )
             ]])
         )
+
+async def show_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает список заказов пользователя"""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    
+    with Database() as db:
+        user_data = db.get_user(user_id)
+        orders = db.get_user_orders(user_id)
+    
+    if not orders:
+        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="profile")]]
+        await query.edit_message_text(
+            "У вас пока нет заказов.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+    
+    message = "📋 Ваши заказы:\n\n"
+    keyboard = []
+    
+    for order in orders:
+        status_text = {
+            'pending': '⏳ Ожидает подтверждения',
+            'paid': '💰 Оплачен',
+            'confirmed': '✅ Подтвержден',
+            'shipped': '🚚 Передан в доставку',
+            'delivered': '🎉 Доставлен',
+            'cancelled': '❌ Отменен'
+        }.get(order['status'], order['status'])
+        
+        message += (
+            f"Заказ #{order['id']}\n"
+            f"Товар: {order['product_names']}\n"
+            f"Количество: {order['quantities']}\n"
+            f"Статус: {status_text}\n"
+            f"Дата: {order['created_at'].strftime('%d.%m.%Y %H:%M')}\n"
+            "➖➖➖➖➖➖➖➖➖➖\n"
+        )
+    
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="profile")])
+    await query.edit_message_text(
+        message, 
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 def main():
     try:
