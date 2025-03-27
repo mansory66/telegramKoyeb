@@ -10,6 +10,9 @@ import hashlib
 import random
 import re
 from decimal import Decimal
+import threading
+import http.server
+import socketserver
 
 # Сторонние библиотеки
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -1138,9 +1141,40 @@ async def update_order_status(update: Update, context: ContextTypes.DEFAULT_TYPE
             ]])
         )
 
+def start_http_server():
+    """Запускает простой HTTP сервер для health check"""
+    port = int(os.getenv("PORT", 8080))
+    
+    class SimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/health":
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok"}).encode())
+            else:
+                self.send_response(404)
+                self.end_headers()
+        
+        def log_message(self, format, *args):
+            logger.info(f"HTTP Server: {format % args}")
+    
+    try:
+        with socketserver.TCPServer(("0.0.0.0", port), SimpleHTTPRequestHandler) as httpd:
+            logger.info(f"HTTP сервер запущен на порту {port}")
+            httpd.serve_forever()
+    except Exception as e:
+        logger.error(f"Ошибка при запуске HTTP сервера: {str(e)}")
+
 async def main():
     try:
         logger.info("Запуск бота...")
+        
+        # Запускаем HTTP-сервер для health check в отдельном потоке
+        http_thread = threading.Thread(target=start_http_server, daemon=True)
+        http_thread.start()
+        logger.info("HTTP сервер запущен в отдельном потоке")
+        
         application = Application.builder().token(BOT_TOKEN).build()
 
         # Добавляем обработчики
@@ -1165,10 +1199,6 @@ async def main():
         
         logger.info("Бот успешно настроен и запускается...")
         
-        # Получаем порт из переменных окружения (для Render)
-        port = int(os.getenv("PORT", 8080))
-        logger.info(f"Используемый порт: {port}")
-        
         # Проверяем переменную окружения WEBHOOK_URL
         webhook_url = os.getenv("WEBHOOK_URL")
         
@@ -1178,6 +1208,7 @@ async def main():
         # Если задан WEBHOOK_URL, используем webhook, иначе polling
         if webhook_url and webhook_url.strip():
             logger.info(f"Запуск через webhook: {webhook_url}")
+            port = int(os.getenv("PORT", 8080))
             
             # Сначала удаляем предыдущий webhook, если он был (с await)
             await application.bot.delete_webhook(drop_pending_updates=True)
@@ -1190,9 +1221,6 @@ async def main():
                 webhook_url=webhook_url,
                 drop_pending_updates=True
             )
-            
-            # Печатаем сообщение, что бот запущен и слушает порт
-            logger.info(f"Бот запущен в режиме webhook и слушает порт {port}")
             
             # Ждем, пока не будет остановлено
             await application.updater.start_webhook_task
