@@ -1143,7 +1143,7 @@ async def update_order_status(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 def start_http_server():
     """Запускает простой HTTP сервер для health check"""
-    port = int(os.getenv("PORT", 8080))
+    port = int(os.getenv("PORT", 10000))
     
     class SimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
@@ -1208,7 +1208,7 @@ async def main():
         # Если задан WEBHOOK_URL, используем webhook, иначе polling
         if webhook_url and webhook_url.strip():
             logger.info(f"Запуск через webhook: {webhook_url}")
-            port = int(os.getenv("PORT", 8080))
+            port = int(os.getenv("PORT", 10000))
             
             # Сначала удаляем предыдущий webhook, если он был (с await)
             await application.bot.delete_webhook(drop_pending_updates=True)
