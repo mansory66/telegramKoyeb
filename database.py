@@ -2,7 +2,6 @@ import mysql.connector
 import logging
 from config import DB_CONFIG
 import os
-import pymysql
 import sys
 
 logger = logging.getLogger(__name__)
