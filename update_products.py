@@ -52,7 +52,13 @@ def main():
             # Получаем существующие товары
             try:
                 existing_products = db.get_all_products()
-                existing_product_codes = {p['code']: p for p in existing_products} if existing_products else {}
+                existing_product_codes = {}
+                if existing_products:
+                    for p in existing_products:
+                        if 'code' in p and p['code']:
+                            existing_product_codes[p['code']] = p
+                        else:
+                            logger.warning(f"Товар в базе данных без кода: {p.get('name', 'Неизвестный')}")
                 logger.info(f"В базе данных найдено {len(existing_product_codes)} товаров")
             except Exception as e:
                 logger.error(f"Ошибка при получении существующих товаров: {str(e)}")
