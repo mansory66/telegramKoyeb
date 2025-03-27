@@ -11,7 +11,10 @@ def get_auth_header():
     """Получение заголовка авторизации для API МойСклад"""
     credentials = f"{MOYSKLAD_LOGIN}:{MOYSKLAD_PASSWORD}"
     encoded_credentials = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
-    return {'Authorization': f'Basic {encoded_credentials}'}
+    return {
+        'Authorization': f'Basic {encoded_credentials}',
+        'Accept': 'application/json;charset=utf-8'
+    }
 
 def get_all_products():
     """Получение всех товаров из МойСклад"""
