@@ -1159,22 +1159,29 @@ def main():
         
         logger.info("Бот успешно настроен и запускается...")
         
-        # Определение веб-хука если запущен на Koyeb
-        if os.getenv("KOYEB", False):
+        # Проверяем переменную окружения WEBHOOK_URL
+        webhook_url = os.getenv("WEBHOOK_URL")
+        
+        # Если задан WEBHOOK_URL, используем webhook, иначе polling
+        if webhook_url and webhook_url.strip():
+            logger.info(f"Запуск через webhook: {webhook_url}")
             port = int(os.getenv("PORT", 8080))
-            webhook_url = os.getenv("WEBHOOK_URL")
-            if webhook_url:
-                application.run_webhook(
-                    listen="0.0.0.0",
-                    port=port,
-                    webhook_url=webhook_url,
-                )
-            else:
-                logger.warning("Webhook URL not set. Running with polling.")
-                application.run_polling()
+            
+            # Сначала удаляем предыдущий webhook, если он был
+            application.bot.delete_webhook()
+            
+            # Устанавливаем webhook
+            application.run_webhook(
+                listen="0.0.0.0",
+                port=port,
+                webhook_url=webhook_url,
+                drop_pending_updates=True  # Игнорируем накопившиеся обновления
+            )
         else:
-            # Запуск через polling для локальной разработки
-            application.run_polling()
+            logger.info("Webhook URL не установлен. Запуск через long polling.")
+            # Удаляем webhook перед запуском long polling
+            application.bot.delete_webhook()
+            application.run_polling(drop_pending_updates=True)
     except Exception as e:
         logger.error(f"Критическая ошибка при запуске бота: {str(e)}")
 
