@@ -1,8 +1,6 @@
 import mysql.connector
 import logging
 from config import DB_CONFIG
-import os
-import sys
 
 logger = logging.getLogger(__name__)
 
@@ -13,42 +11,42 @@ class Database:
             self.connection = mysql.connector.connect(**DB_CONFIG)
             self.cursor = self.connection.cursor(dictionary=True)
             logger.info("Успешное подключение к базе данных")
-            self._add_code_column()
+            self._create_tables()
         except mysql.connector.Error as err:
             logger.error(f"Ошибка подключения к базе данных: {err}")
             raise
-    
-    def _add_code_column(self):
-        """Добавляет столбец code в таблицу products, если он не существует"""
+
+    def _create_tables(self):
+        """Создает необходимые таблицы, если они не существуют"""
         try:
-            # Проверяем, существует ли столбец code в таблице products
-            self.cursor.execute("DESCRIBE products")
-            columns = self.cursor.fetchall()
-            
-            # Проверяем, есть ли столбец code среди колонок
-            column_exists = any(column['Field'] == 'code' for column in columns)
-            
-            if not column_exists:
-                logger.info("Добавление столбца 'code' в таблицу products")
-                self.cursor.execute("ALTER TABLE products ADD COLUMN code VARCHAR(255)")
-                self.connection.commit()
-                logger.info("Столбец 'code' успешно добавлен")
-            else:
-                logger.info("Столбец 'code' уже существует в таблице products")
-            
+            # Создание таблицы users
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    telegram_id BIGINT UNIQUE NOT NULL,
+                    username VARCHAR(255),
+                    nickname VARCHAR(255),
+                    language VARCHAR(2) DEFAULT 'ru',
+                    is_subscribed BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self.connection.commit()
+            logger.info("Таблицы успешно созданы или уже существуют")
         except mysql.connector.Error as err:
-            logger.error(f"Ошибка при добавлении столбца code: {err}")
-    
+            logger.error(f"Ошибка при создании таблиц: {err}")
+            raise
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:
             self.connection.close()
             logger.info("Соединение с базой данных закрыто")
         except Exception as e:
             logger.error(f"Ошибка при закрытии соединения: {e}")
-    
+
     def get_user(self, telegram_id):
         try:
             self.cursor.execute("SELECT * FROM users WHERE telegram_id = %s", (telegram_id,))
@@ -199,21 +197,11 @@ class Database:
             return False
 
     def get_products_by_category(self, category_id):
-        try:
-            self.cursor.execute("SELECT * FROM products WHERE category_id = %s", (category_id,))
-            return self.cursor.fetchall()
-        except mysql.connector.Error as err:
-            logger.error(f"Ошибка при получении товаров по категории: {err}")
-            return []
-
-    def get_all_products(self):
-        """Получить все товары из базы данных"""
-        try:
-            self.cursor.execute("SELECT * FROM products")
-            return self.cursor.fetchall()
-        except mysql.connector.Error as err:
-            logger.error(f"Ошибка при получении всех товаров: {err}")
-            return []
+        self.cursor.execute(
+            "SELECT * FROM products WHERE category_id = %s",
+            (category_id,)
+        )
+        return self.cursor.fetchall()
 
     def get_product(self, product_id):
         self.cursor.execute(
@@ -363,50 +351,26 @@ class Database:
             logger.error(f"Ошибка при получении товара по артикулу: {str(e)}")
             return None
 
-    def update_product(self, product_id, name=None, description=None, price=None, 
-                      quantity=None, category_id=None, image_url=None):
+    def update_product(self, product_id, **kwargs):
         """Обновить информацию о товаре"""
         try:
-            query_parts = []
-            params = []
+            update_fields = []
+            values = []
             
-            if name is not None:
-                query_parts.append("name = %s")
-                params.append(name)
-                
-            if description is not None:
-                query_parts.append("description = %s")
-                params.append(description)
-                
-            if price is not None:
-                query_parts.append("price = %s")
-                params.append(price)
-                
-            if quantity is not None:
-                query_parts.append("quantity = %s")
-                params.append(quantity)
-                
-            if category_id is not None:
-                query_parts.append("category_id = %s")
-                params.append(category_id)
-                
-            if image_url is not None:
-                query_parts.append("image_url = %s")
-                params.append(image_url)
-                
-            if not query_parts:
-                return False  # Нечего обновлять
-                
-            params.append(product_id)  # ID товара для WHERE условия
+            for key, value in kwargs.items():
+                update_fields.append(f"{key} = %s")
+                values.append(value)
             
-            query = f"UPDATE products SET {', '.join(query_parts)} WHERE id = %s"
-            self.cursor.execute(query, params)
+            values.append(product_id)
+            
+            query = f"UPDATE products SET {', '.join(update_fields)} WHERE id = %s"
+            self.cursor.execute(query, values)
             self.connection.commit()
             
             logger.info(f"Товар {product_id} успешно обновлен")
             return True
-        except mysql.connector.Error as err:
-            logger.error(f"Ошибка при обновлении товара: {err}")
+        except Exception as e:
+            logger.error(f"Ошибка при обновлении товара {product_id}: {str(e)}")
             self.connection.rollback()
             return False
 
@@ -750,22 +714,4 @@ class Database:
             self.connection.commit()
             return cursor.rowcount > 0
         finally:
-            cursor.close()
-
-    def create_product(self, name, code, price, quantity, category_id=None, description="", image_url=""):
-        """Создать новый товар"""
-        try:
-            self.cursor.execute(
-                """
-                INSERT INTO products 
-                (name, code, description, price, quantity, category_id, image_url) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                (name, code, description, price, quantity, category_id, image_url)
-            )
-            self.connection.commit()
-            return self.cursor.lastrowid
-        except mysql.connector.Error as err:
-            logger.error(f"Ошибка при создании товара: {err}")
-            self.connection.rollback()
-            return None 
+            cursor.close() 

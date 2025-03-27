@@ -5,14 +5,6 @@ import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
-import datetime
-import hashlib
-import random
-import re
-from decimal import Decimal
-import threading
-import http.server
-import socketserver
 
 # Сторонние библиотеки
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -25,11 +17,9 @@ from config import (
     ADMIN_USERNAMES, PAYMENT_INFO, 
     MOYSKLAD_LOGIN, MOYSKLAD_PASSWORD,
     WELCOME_MESSAGE,
-    SUBSCRIPTION_MESSAGE, CATEGORIES_MESSAGE,
-    LOG_LEVEL_CODE
+    SUBSCRIPTION_MESSAGE, CATEGORIES_MESSAGE
 )
 from database import Database
-from update_products import main as update_products_from_moysklad
 
 # Поддерживаемые языки
 LANGUAGES = {
@@ -148,17 +138,6 @@ PROFILE_MESSAGE = """
 🔹 Количество заказов: {orders_count}
 🔹 Язык: {language}
 """
-
-# Инициируем обновление товаров из МойСклад при запуске бота
-try:
-    logger.info("Запуск обновления товаров из МойСклад при старте бота")
-    update_result = update_products_from_moysklad()
-    if update_result:
-        logger.info("Обновление товаров из МойСклад успешно выполнено")
-    else:
-        logger.warning("Не удалось обновить товары из МойСклад")
-except Exception as e:
-    logger.error(f"Ошибка при обновлении товаров из МойСклад: {str(e)}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -1141,40 +1120,9 @@ async def update_order_status(update: Update, context: ContextTypes.DEFAULT_TYPE
             ]])
         )
 
-def start_http_server():
-    """Запускает простой HTTP сервер для health check"""
-    port = int(os.getenv("PORT", 10000))
-    
-    class SimpleHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
-        def do_GET(self):
-            if self.path == "/health":
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({"status": "ok"}).encode())
-            else:
-                self.send_response(404)
-                self.end_headers()
-        
-        def log_message(self, format, *args):
-            logger.info(f"HTTP Server: {format % args}")
-    
-    try:
-        with socketserver.TCPServer(("0.0.0.0", port), SimpleHTTPRequestHandler) as httpd:
-            logger.info(f"HTTP сервер запущен на порту {port}")
-            httpd.serve_forever()
-    except Exception as e:
-        logger.error(f"Ошибка при запуске HTTP сервера: {str(e)}")
-
-async def main():
+def main():
     try:
         logger.info("Запуск бота...")
-        
-        # Запускаем HTTP-сервер для health check в отдельном потоке
-        http_thread = threading.Thread(target=start_http_server, daemon=True)
-        http_thread.start()
-        logger.info("HTTP сервер запущен в отдельном потоке")
-        
         application = Application.builder().token(BOT_TOKEN).build()
 
         # Добавляем обработчики
@@ -1199,50 +1147,24 @@ async def main():
         
         logger.info("Бот успешно настроен и запускается...")
         
-        # Проверяем переменную окружения WEBHOOK_URL
-        webhook_url = os.getenv("WEBHOOK_URL")
-        
-        # Инициализация приложения
-        await application.initialize()
-        
-        # Если задан WEBHOOK_URL, используем webhook, иначе polling
-        if webhook_url and webhook_url.strip():
-            logger.info(f"Запуск через webhook: {webhook_url}")
-            port = int(os.getenv("PORT", 10000))
-            
-            # Сначала удаляем предыдущий webhook, если он был (с await)
-            await application.bot.delete_webhook(drop_pending_updates=True)
-            
-            # Устанавливаем webhook
-            await application.start()
-            await application.updater.start_webhook(
-                listen="0.0.0.0",
-                port=port,
-                webhook_url=webhook_url,
-                drop_pending_updates=True
-            )
-            
-            # Ждем, пока не будет остановлено
-            await application.updater.start_webhook_task
+        # Определение веб-хука если запущен на Koyeb
+        if os.getenv("KOYEB", False):
+            port = int(os.getenv("PORT", 8080))
+            webhook_url = os.getenv("WEBHOOK_URL")
+            if webhook_url:
+                application.run_webhook(
+                    listen="0.0.0.0",
+                    port=port,
+                    webhook_url=webhook_url,
+                )
+            else:
+                logger.warning("Webhook URL not set. Running with polling.")
+                application.run_polling()
         else:
-            logger.info("Webhook URL не установлен. Запуск через long polling.")
-            # Удаляем webhook перед запуском long polling (с await)
-            await application.bot.delete_webhook(drop_pending_updates=True)
-            
-            # Запускаем через polling
-            await application.start()
-            await application.updater.start_polling(drop_pending_updates=True)
-            
-            # Ждем, пока не будет остановлено
-            await application.updater.stop()
-            
-        # Корректно останавливаем приложение при завершении
-        await application.stop()
+            # Запуск через polling для локальной разработки
+            application.run_polling()
     except Exception as e:
         logger.error(f"Критическая ошибка при запуске бота: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
 
 if __name__ == '__main__':
-    # Используем asyncio для запуска асинхронной main()
-    asyncio.run(main()) 
+    main() 
