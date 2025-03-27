@@ -20,6 +20,7 @@ from config import (
     SUBSCRIPTION_MESSAGE, CATEGORIES_MESSAGE
 )
 from database import Database
+from update_products import main as update_products_from_moysklad
 
 # Поддерживаемые языки
 LANGUAGES = {
@@ -138,6 +139,17 @@ PROFILE_MESSAGE = """
 🔹 Количество заказов: {orders_count}
 🔹 Язык: {language}
 """
+
+# Инициируем обновление товаров из МойСклад при запуске бота
+try:
+    logger.info("Запуск обновления товаров из МойСклад при старте бота")
+    update_result = update_products_from_moysklad()
+    if update_result:
+        logger.info("Обновление товаров из МойСклад успешно выполнено")
+    else:
+        logger.warning("Не удалось обновить товары из МойСклад")
+except Exception as e:
+    logger.error(f"Ошибка при обновлении товаров из МойСклад: {str(e)}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
