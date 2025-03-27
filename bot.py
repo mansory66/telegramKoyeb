@@ -1132,7 +1132,7 @@ async def update_order_status(update: Update, context: ContextTypes.DEFAULT_TYPE
             ]])
         )
 
-def main():
+async def main():
     try:
         logger.info("Запуск бота...")
         application = Application.builder().token(BOT_TOKEN).build()
@@ -1167,8 +1167,8 @@ def main():
             logger.info(f"Запуск через webhook: {webhook_url}")
             port = int(os.getenv("PORT", 8080))
             
-            # Сначала удаляем предыдущий webhook, если он был
-            application.bot.delete_webhook()
+            # Сначала удаляем предыдущий webhook, если он был (с await)
+            await application.bot.delete_webhook(drop_pending_updates=True)
             
             # Устанавливаем webhook
             application.run_webhook(
@@ -1179,11 +1179,12 @@ def main():
             )
         else:
             logger.info("Webhook URL не установлен. Запуск через long polling.")
-            # Удаляем webhook перед запуском long polling
-            application.bot.delete_webhook()
+            # Удаляем webhook перед запуском long polling (с await)
+            await application.bot.delete_webhook(drop_pending_updates=True)
             application.run_polling(drop_pending_updates=True)
     except Exception as e:
         logger.error(f"Критическая ошибка при запуске бота: {str(e)}")
 
 if __name__ == '__main__':
-    main() 
+    # Используем asyncio для запуска асинхронной main()
+    asyncio.run(main()) 
