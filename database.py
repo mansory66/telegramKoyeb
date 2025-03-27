@@ -197,11 +197,21 @@ class Database:
             return False
 
     def get_products_by_category(self, category_id):
-        self.cursor.execute(
-            "SELECT * FROM products WHERE category_id = %s",
-            (category_id,)
-        )
-        return self.cursor.fetchall()
+        try:
+            self.cursor.execute("SELECT * FROM products WHERE category_id = %s", (category_id,))
+            return self.cursor.fetchall()
+        except mysql.connector.Error as err:
+            logger.error(f"Ошибка при получении товаров по категории: {err}")
+            return []
+
+    def get_all_products(self):
+        """Получить все товары из базы данных"""
+        try:
+            self.cursor.execute("SELECT * FROM products")
+            return self.cursor.fetchall()
+        except mysql.connector.Error as err:
+            logger.error(f"Ошибка при получении всех товаров: {err}")
+            return []
 
     def get_product(self, product_id):
         self.cursor.execute(
@@ -351,26 +361,50 @@ class Database:
             logger.error(f"Ошибка при получении товара по артикулу: {str(e)}")
             return None
 
-    def update_product(self, product_id, **kwargs):
+    def update_product(self, product_id, name=None, description=None, price=None, 
+                      quantity=None, category_id=None, image_url=None):
         """Обновить информацию о товаре"""
         try:
-            update_fields = []
-            values = []
+            query_parts = []
+            params = []
             
-            for key, value in kwargs.items():
-                update_fields.append(f"{key} = %s")
-                values.append(value)
+            if name is not None:
+                query_parts.append("name = %s")
+                params.append(name)
+                
+            if description is not None:
+                query_parts.append("description = %s")
+                params.append(description)
+                
+            if price is not None:
+                query_parts.append("price = %s")
+                params.append(price)
+                
+            if quantity is not None:
+                query_parts.append("quantity = %s")
+                params.append(quantity)
+                
+            if category_id is not None:
+                query_parts.append("category_id = %s")
+                params.append(category_id)
+                
+            if image_url is not None:
+                query_parts.append("image_url = %s")
+                params.append(image_url)
+                
+            if not query_parts:
+                return False  # Нечего обновлять
+                
+            params.append(product_id)  # ID товара для WHERE условия
             
-            values.append(product_id)
-            
-            query = f"UPDATE products SET {', '.join(update_fields)} WHERE id = %s"
-            self.cursor.execute(query, values)
+            query = f"UPDATE products SET {', '.join(query_parts)} WHERE id = %s"
+            self.cursor.execute(query, params)
             self.connection.commit()
             
             logger.info(f"Товар {product_id} успешно обновлен")
             return True
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении товара {product_id}: {str(e)}")
+        except mysql.connector.Error as err:
+            logger.error(f"Ошибка при обновлении товара: {err}")
             self.connection.rollback()
             return False
 
@@ -714,4 +748,22 @@ class Database:
             self.connection.commit()
             return cursor.rowcount > 0
         finally:
-            cursor.close() 
+            cursor.close()
+
+    def create_product(self, name, code, price, quantity, category_id=None, description="", image_url=""):
+        """Создать новый товар"""
+        try:
+            self.cursor.execute(
+                """
+                INSERT INTO products 
+                (name, code, description, price, quantity, category_id, image_url) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (name, code, description, price, quantity, category_id, image_url)
+            )
+            self.connection.commit()
+            return self.cursor.lastrowid
+        except mysql.connector.Error as err:
+            logger.error(f"Ошибка при создании товара: {err}")
+            self.connection.rollback()
+            return None 

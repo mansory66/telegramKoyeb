@@ -34,7 +34,7 @@ ADMIN_USERNAMES = os.getenv("ADMIN_USERNAMES", "BrabusGT,apoli1nariaa").split(",
 
 # Настройки МойСклад
 MOYSKLAD_LOGIN = os.getenv("MOYSKLAD_LOGIN", "admin@nulia49121")  # Логин МойСклад
-MOYSKLAD_PASSWORD = os.getenv("MOYSKLAD_PASSWORD", "228674Polina")  # Пароль МойСклад
+MOYSKLAD_PASSWORD = os.getenv("MOYSKLAD_PASSWORD", "PUFFSMOKE163")  # Пароль МойСклад
 
 # Сообщения бота
 WELCOME_MESSAGE = """
